@@ -46,20 +46,13 @@ void TCPWin::Connect(const char *host, int port)
 		throw TCPSocketException("socket()");
 
 	// Fill a SOCKADDR_IN struct with address information
-
 	SOCKADDR_IN serverInfo;
 	serverInfo.sin_family = AF_INET;
-
-	// At this point, we've successfully retrieved vital information about the server,
-	// including its hostname, aliases, and IP addresses.  Wait; how could a single
-	// computer have multiple addresses, and exactly what is the following line doing?
-
-	// See the explanation below.
 	serverInfo.sin_addr = *((LPIN_ADDR)*hostEntry->h_addr_list);
 	serverInfo.sin_port = htons(port);		// Change to network-byte order and
 											// insert into port field
 
-											// Connect to the server
+	// Connect to the server
 	nret = connect(theSocket,
 		(LPSOCKADDR)& serverInfo,
 		sizeof(struct sockaddr));

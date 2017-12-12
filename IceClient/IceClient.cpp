@@ -11,6 +11,37 @@ char dump[50000];
 char *ptr = dump;
 __int64 total = 0;
 
+const char *streamTitle = "StreamTitle";
+
+char* binaryArraySearch(char *haystack, size_t sizeOfHaystack, const char *needle, size_t sizeOfNeeddle)
+{
+    for (size_t i = 0; i < sizeOfHaystack; i++)
+    {
+        if (haystack[i] != *needle)
+            continue;
+
+        bool pass = true;
+        int keep = i;
+
+        for (size_t j = 0; j < sizeOfNeeddle; i++, j++)
+        {
+            if (i >= sizeOfHaystack)
+                break;
+
+            if (haystack[i] != needle[j])
+            {
+                pass = false;
+                break;
+            }
+        }
+
+        if (pass)
+            return &haystack[keep];
+    }
+    
+    return nullptr;
+}
+
 int main()
 {
 	TCPWin tcp;
@@ -20,16 +51,19 @@ int main()
 
 	try
 	{
-		tcp.Connect("stream-tx3.radioparadise.com", 80);
-		tcp.Request("mp3-192");
-		tcp.GetHeaders(http, icy);
+        tcp.Connect("<Your stream>", 80);
+        tcp.Request("<mountpoint>");
+        tcp.GetHeaders(http, icy);
 
 		FILE *fp = fopen("E:\\out.mp3", "wb");
 
 		if (!fp)
 			throw("Could not create mp3 output file");
 
-		int count = 0;
+        // HACK - Some streams start correctly, perfectly timed to reach the meta at length
+        // metaint, but others don't.  The only way I found to correct this is to check for
+        // the first "StreamTitle" message and infer the meta jump from there.
+        bool checkTitle = true;
 
 		for (;;)
 		{
@@ -38,46 +72,73 @@ int main()
 
 			tcp.GetBuffer(&buf, size);
 
-			// Anything we get, we add it to the buffer.
-			memcpy(ptr, buf, size);
+            // Anything we get, we add it to the buffer.
+            memcpy(ptr, buf, size);
 
-			// Advance poiner to buffer.
-			ptr += size;
+            // Advance pointer to buffer.
+            ptr += size;
 
-			// If we have enough data to recover the meta-info ...
-			if (ptr - dump > icy.metaint + 4080)
-			{
-				// Dump sound
-				fwrite(dump, icy.metaint, 1, fp);
+            if (checkTitle)
+            {
+                // Check for the meta title in the data accumulated so far.
+                char *meta = binaryArraySearch(dump, ptr - dump, streamTitle, strlen(streamTitle));
 
-				// Set pointer to meta-info at the sound block's end
-				char *meta = dump + icy.metaint;
+                if (!meta)
+                    continue;
 
-				// Take the meta-info and multiply by 16
-				__int64 len = (unsigned char)*meta * 16;
+                // Print out the title: this will be our stating point.
+                std::cout << 0 << ": " << meta << std::endl;
 
-				// Advance
-				meta++;
+                // Get the meta length from the previous character and advance.
+                size_t len = (unsigned char)*(meta - 1) * 16;
+                meta += len;
+                
+                // Move remaining of data to the beginning of the dump buffer.
+                len = (size_t)(ptr - meta);
+                memmove(dump, meta, len);
 
-				// If there is meta-data (0 is none)
-				if (len)
-				{
-					// Take the string and advance pointer to the end of it.
-					std::cout << total << ": " << std::string(meta, len) << std::endl;
-					meta += len;
-				}
+                // Set the pointer at the end of the moved data.
+                ptr = dump + len;
 
-				total += icy.metaint;
+                // End of check.
+                checkTitle = false;
+            }
 
-				// What is the length of the remaining data (reusing len here)
-				len = ptr - meta;
+            // If we have enough data to recover the meta-info ...
+            if (ptr - dump > icy.metaint + 4096)
+            {
+                // Dump sound
+                fwrite(dump, icy.metaint, 1, fp);
 
-				// Move remaining data to the beginning of the dump buffer.
-				memmove(dump, meta, len);
+                // Set pointer to meta-info at the sound block's end
+                char *meta = dump + icy.metaint;
 
-				// Set the pointer at the end of the moved data.
-				ptr = dump + len;
-			}
+                // Take the meta-info and multiply by 16
+                size_t len = (unsigned char)*meta * 16;
+
+                // Advance
+                meta++;
+
+                // If there is meta-data (0 is none)
+                if (len)
+                {
+                    // Take the string and advance pointer to the end of it.
+                    std::cout << total << ": " << meta << std::endl;
+                    meta += len;
+                }
+
+                // Keep the total.  This can be used to approximate TOC for your dump.
+                total += icy.metaint;
+
+                // What is the length of the remaining data ?
+                len = ptr - meta;
+
+                // Move remaining data to the beginning of the dump buffer.
+                memmove(dump, meta, len);
+
+                // Set the pointer at the end of the moved data.
+                ptr = dump + len;
+            }
 		}
 
 		tcp.Close();
